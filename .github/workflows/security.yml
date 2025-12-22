@@ -1,3 +1,34 @@
+name: SBOM + Dependency-Check (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Generate SBOM (CycloneDX)
+        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json --output-format json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 7
+
   dependency-check:
     runs-on: ubuntu-latest
     needs: build-sbom
@@ -6,8 +37,7 @@
         uses: actions/checkout@v4
 
       - name: Prepare dirs
-        run: |
-          mkdir -p reports odc-data
+        run: mkdir -p reports odc-data
 
       - name: Run OWASP Dependency-Check (Docker)
         env:
@@ -17,19 +47,4 @@
             -e "NVD_API_KEY=${NVD_API_KEY}" \
             -v "${{ github.workspace }}:/src" \
             -v "${{ github.workspace }}/reports:/report" \
-            -v "${{ github.workspace }}/odc-data:/usr/share/dependency-check/data" \
-            owasp/dependency-check:latest \
-            --scan /src \
-            --project "sbom-lab" \
-            --format HTML \
-            --out /report \
-            --nvdApiKey "${NVD_API_KEY}" \
-            --disableOssIndex \
-            --enableExperimental
-
-      - name: Upload Dependency-Check report
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-check-report
-          path: reports
-          retention-days: 7
+            -v "${{ github.workspace }}/odc-data:/usr/share/dependency-
