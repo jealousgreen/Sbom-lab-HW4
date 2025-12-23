@@ -57,7 +57,8 @@ jobs:
             --out /report \
             --nvdApiKey "${NVD_API_KEY}" \
             --disableOssIndex \
-            --enableExperimental
+            --enableExperimental \
+            --autoUpdate false
 
       - name: Upload Dependency-Check report
         uses: actions/upload-artifact@v4
