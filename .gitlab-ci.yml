@@ -25,9 +25,16 @@ dependency_check:
   stage: security
   image: owasp/dependency-check:latest
   needs: ["generate_sbom"]
+  variables:
+    DC_DATA: "$CI_PROJECT_DIR/odc-data-$CI_PIPELINE_ID-$CI_JOB_ID"
   script:
-    - mkdir -p reports
-    - dependency-check.sh --scan . --format HTML --out reports
+    - mkdir -p reports "$DC_DATA"
+    - rm -rf "$DC_DATA"/*
+    - dependency-check.sh
+        --scan "$CI_PROJECT_DIR"
+        --format HTML
+        --out "$CI_PROJECT_DIR/reports"
+        --data "$DC_DATA"
   artifacts:
     when: always
     expire_in: 1 week
