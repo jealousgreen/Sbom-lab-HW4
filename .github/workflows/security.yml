@@ -45,63 +45,70 @@ jobs:
       - name: Pull Dependency-Check image
         run: docker pull owasp/dependency-check:latest
 
-      - name: Dependency-Check DB update (heartbeat every 3 min)
+      - name: Dependency-Check DB update (heartbeat every 3 min + docker logs)
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           set -e
 
-          echo " Pre-check: data dir "
-          ls -la $DATA_DIR || true
-          du -sh $DATA_DIR || true
+          NAME=odc-update
+          docker rm -f $NAME 2>/dev/null || true
 
-          UPDATE_LOG=docker-update.log
-          rm -f $UPDATE_LOG
+          echo " Starting update container (detached) "
+          docker run -d --name $NAME \
+            -e NVD_API_KEY=$NVD_API_KEY \
+            -v $PWD/$DATA_DIR:/usr/share/dependency-check/data \
+            owasp/dependency-check:latest \
+            --updateonly \
+            --data /usr/share/dependency-check/data \
+            --nvdApiKey $NVD_API_KEY \
+            --log /usr/share/dependency-check/data/update.log
 
-          (
-            docker run --rm \
-              -e NVD_API_KEY=$NVD_API_KEY \
-              -v $PWD/$DATA_DIR:/usr/share/dependency-check/data \
-              owasp/dependency-check:latest \
-              --updateonly \
-              --data /usr/share/dependency-check/data \
-              --nvdApiKey $NVD_API_KEY \
-              --log /usr/share/dependency-check/data/update.log
-          ) > $UPDATE_LOG 2>&1 &
+          echo "=== Container started: $NAME ==="
+          docker ps --filter "name=$NAME"
 
-          DC_PID=$!
-
-          while kill -0 $DC_PID 2>/dev/null; do
-            echo " heartbeat "
+          # Heartbeat: каждые 3 минуты показываем логи контейнера и рост каталога
+          while docker ps --format '{{.Names}}' | grep -q "^$NAME$"; do
+            echo "---- heartbeat ----"
             date
+            echo "---- docker logs (tail) ----"
+            docker logs --tail 80 $NAME || true
+
+            echo "---- data dir size ----"
             if [ -f $DATA_DIR/odc.mv.db ]; then
               ls -lh $DATA_DIR/odc.mv.db || true
             else
               echo "DB not created yet"
             fi
             du -sh $DATA_DIR || true
-            echo "docker-update.log tail"
-            tail -n 40 $UPDATE_LOG || true
+
             sleep 180
           done
 
-          wait $DC_PID
-          EXIT_CODE=$?
-          echo "Update container exit code: $EXIT_CODE"
+          echo "Container finished, collecting exit code "
+          EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' $NAME 2>/dev/null || echo 1)
+          echo "Update exit code: $EXIT_CODE"
 
-          echo "Final docker-update.log tail"
-          tail -n 200 $UPDATE_LOG || true
+          echo "---- final docker logs ----"
+          docker logs --tail 200 $NAME || true
 
-          echo " Final internal update.log tail "
+          echo "---- internal update.log (tail) ----"
           tail -n 200 $DATA_DIR/update.log || true
 
-          echo "Post-check: data dir"
+          docker rm -f $NAME 2>/dev/null || true
+
+          echo " Post-check: data dir "
           ls -la $DATA_DIR || true
           du -sh $DATA_DIR || true
 
           if [ ! -f $DATA_DIR/odc.mv.db ]; then
-            echo "ERROR: odc.mv.db was not created."
+            echo "ERROR: odc.mv.db was not created (DB missing)."
             exit 13
+          fi
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "ERROR: update container failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
           fi
 
       - name: Dependency-Check scan
