@@ -52,7 +52,15 @@ jobs:
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          set -e
+          set -euo pipefail
+
+          echo "=== Pre-check: data dir ==="
+          ls -la "${DATA_DIR}" || true
+          du -sh "${DATA_DIR}" || true
+
+          # Запускаем docker run и сохраняем ВЕСЬ вывод в файл (чтобы видеть ошибки)
+          UPDATE_LOG="docker-update.log"
+          rm -f "${UPDATE_LOG}"
 
           (
             docker run --rm \
@@ -63,53 +71,12 @@ jobs:
               --data /usr/share/dependency-check/data \
               --nvdApiKey "${NVD_API_KEY}" \
               --log /usr/share/dependency-check/data/update.log
-          ) &
+          ) >"${UPDATE_LOG}" 2>&1 &
 
           DC_PID=$!
 
+          # Heartbeat: каждые 3 минуты показываем размер и хвост docker-лога
           while kill -0 "$DC_PID" 2>/dev/null; do
-            echo "---- heartbeat ($(date)) "
+            echo "---- heartbeat ($(date)) ----"
             if [ -f "${DATA_DIR}/odc.mv.db" ]; then
-              ls -lh "${DATA_DIR}/odc.mv.db"
-            else
-              echo "DB not created yet"
-            fi
-            du -sh "${DATA_DIR}" || true
-            sleep 180
-          done
-
-          wait "$DC_PID"
-
-          echo "---- Update finished "
-          tail -n 100 "${DATA_DIR}/update.log" || true
-
-      - name: Dependency-Check scan
-        run: |
-          docker run --rm \
-            -v "${PWD}:/src" \
-            -v "${PWD}/${REPORT_DIR}:/report" \
-            -v "${PWD}/${DATA_DIR}:/usr/share/dependency-check/data" \
-            owasp/dependency-check:latest \
-            --noupdate \
-            --data /usr/share/dependency-check/data \
-            --scan /src \
-            --project "sbom-lab" \
-            --format HTML --format JSON \
-            --out /report \
-            --prettyPrint \
-            --disableOssIndex \
-            --enableExperimental
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom
-          path: sbom.cdx.json
-          retention-days: 7
-
-      - name: Upload Dependency-Check report
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-check-report
-          path: dependency-check-report/
-          retention-days: 7
+              ls -lh "${DATA_DIR}/odc.m_
