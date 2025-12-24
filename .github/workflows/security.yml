@@ -1,28 +1,64 @@
+name: Security (SBOM + Dependency-Check)
+
+on:
+  pull_request:
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Generate CycloneDX SBOM
+        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json --output-format json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 7
+
   dependency-check:
     runs-on: ubuntu-latest
-    needs: build-sbom
+    needs: generate-sbom
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Prepare dirs
         run: |
-          mkdir -p reports odc-data
+          mkdir -p reports
+          mkdir -p odc-data-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Run OWASP Dependency-Check (Docker)
+      - name: OWASP Dependency-Check (Docker)
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
+          docker pull owasp/dependency-check:latest
+          DATA_DIR="odc-data-${{ github.run_id }}-${{ github.run_attempt }}"
+          mkdir -p reports "$DATA_DIR"
           docker run --rm \
             -e "NVD_API_KEY=${NVD_API_KEY}" \
-            -v "${{ github.workspace }}:/src" \
-            -v "${{ github.workspace }}/reports:/report" \
-            -v "${{ github.workspace }}/odc-data:/usr/share/dependency-check/data" \
+            -v "${PWD}:/src" \
+            -v "${PWD}/reports:/report" \
+            -v "${PWD}/${DATA_DIR}:/usr/share/dependency-check/data" \
             owasp/dependency-check:latest \
             --scan /src \
             --project "sbom-lab" \
-            --format HTML \
+            --format HTML --format JSON \
             --out /report \
+            --prettyPrint \
             --nvdApiKey "${NVD_API_KEY}" \
             --disableOssIndex \
             --enableExperimental
@@ -31,5 +67,5 @@
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: reports
+          path: reports/
           retention-days: 7
