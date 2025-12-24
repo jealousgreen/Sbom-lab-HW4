@@ -48,17 +48,40 @@ jobs:
       - name: Pull Dependency-Check image
         run: docker pull owasp/dependency-check:latest
 
-      - name: Dependency-Check DB update
+      - name: Dependency-Check DB update (heartbeat every 3 min)
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          docker run --rm \
-            -e "NVD_API_KEY=${NVD_API_KEY}" \
-            -v "${PWD}/${DATA_DIR}:/usr/share/dependency-check/data" \
-            owasp/dependency-check:latest \
-            --updateonly \
-            --data /usr/share/dependency-check/data \
-            --nvdApiKey "${NVD_API_KEY}"
+          set -e
+
+          (
+            docker run --rm \
+              -e "NVD_API_KEY=${NVD_API_KEY}" \
+              -v "${PWD}/${DATA_DIR}:/usr/share/dependency-check/data" \
+              owasp/dependency-check:latest \
+              --updateonly \
+              --data /usr/share/dependency-check/data \
+              --nvdApiKey "${NVD_API_KEY}" \
+              --log /usr/share/dependency-check/data/update.log
+          ) &
+
+          DC_PID=$!
+
+          while kill -0 "$DC_PID" 2>/dev/null; do
+            echo "---- heartbeat ($(date)) "
+            if [ -f "${DATA_DIR}/odc.mv.db" ]; then
+              ls -lh "${DATA_DIR}/odc.mv.db"
+            else
+              echo "DB not created yet"
+            fi
+            du -sh "${DATA_DIR}" || true
+            sleep 180
+          done
+
+          wait "$DC_PID"
+
+          echo "---- Update finished "
+          tail -n 100 "${DATA_DIR}/update.log" || true
 
       - name: Dependency-Check scan
         run: |
