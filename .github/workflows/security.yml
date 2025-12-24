@@ -1,4 +1,4 @@
-name: Security Scan (SBOM + Dependency-Check)
+name: Security
 
 on:
   pull_request:
@@ -6,47 +6,29 @@ on:
 jobs:
   security:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Generate SBOM (CycloneDX)
+      - name: Generate SBOM
+        run: npx @cyclonedx/cyclonedx-npm@4.1.2 --output-file sbom.cdx.json --output-format json
+
+      - name: Run Dependency-Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          npx @cyclonedx/cyclonedx-npm@4.1.2 \
-            --output-file sbom.cdx.json \
-            --output-format json
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom
-          path: sbom.cdx.json
-          retention-days: 7
-
-      - name: Prepare directories
-        run: |
+          set -e
           DATA_DIR="odc-data-${{ github.run_id }}-${{ github.run_attempt }}"
           REPORT_DIR="dependency-check-report"
           rm -rf "$DATA_DIR" "$REPORT_DIR"
           mkdir -p "$DATA_DIR" "$REPORT_DIR"
-          echo "DATA_DIR=$DATA_DIR" >> $GITHUB_ENV
-          echo "REPORT_DIR=$REPORT_DIR" >> $GITHUB_ENV
 
-      - name: Run OWASP Dependency-Check
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
           docker pull owasp/dependency-check:latest
-
           docker run --rm \
             -e "NVD_API_KEY=${NVD_API_KEY}" \
             -v "${PWD}:/src" \
@@ -57,13 +39,15 @@ jobs:
             --scan /src \
             --project "sbom-lab" \
             --format HTML --format JSON \
-            --out /report \
-            --prettyPrint \
-            --disableOssIndex \
-            --enableExperimental
+            --out /report
 
-      - name: Upload Dependency-Check report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
           path: dependency-check-report/
