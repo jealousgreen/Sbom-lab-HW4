@@ -4,7 +4,7 @@ on:
   pull_request:
 
 jobs:
-  sbom-and-security:
+  security:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,7 +15,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -35,7 +34,6 @@ jobs:
 
       - name: Prepare directories
         run: |
-          set -e
           DATA_DIR="odc-data-${{ github.run_id }}-${{ github.run_attempt }}"
           REPORT_DIR="dependency-check-report"
           rm -rf "$DATA_DIR" "$REPORT_DIR"
@@ -43,14 +41,13 @@ jobs:
           echo "DATA_DIR=$DATA_DIR" >> $GITHUB_ENV
           echo "REPORT_DIR=$REPORT_DIR" >> $GITHUB_ENV
 
-      - name: OWASP Dependency-Check (Docker)
+      - name: Run OWASP Dependency-Check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           docker pull owasp/dependency-check:latest
 
           docker run --rm \
-            -u "$(id -u):$(id -g)" \
             -e "NVD_API_KEY=${NVD_API_KEY}" \
             -v "${PWD}:/src" \
             -v "${PWD}/${REPORT_DIR}:/report" \
@@ -68,3 +65,6 @@ jobs:
       - name: Upload Dependency-Check report
         uses: actions/upload-artifact@v4
         with:
+          name: dependency-check-report
+          path: dependency-check-report/
+          retention-days: 7
