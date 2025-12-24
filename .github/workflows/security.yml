@@ -18,113 +18,27 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Generate SBOM (CycloneDX)
-        run: npx @cyclonedx/cyclonedx-npm@4.1.2 --output-file sbom.cdx.json --output-format json
-
-      - name: Prepare directories
         run: |
-          DATA_DIR=odc-data
-          REPORT_DIR=dependency-check-report
-          mkdir -p $DATA_DIR $REPORT_DIR
-          echo "DATA_DIR=$DATA_DIR" >> $GITHUB_ENV
-          echo "REPORT_DIR=$REPORT_DIR" >> $GITHUB_ENV
+          npx @cyclonedx/cyclonedx-npm@4.1.2 \
+            --output-file sbom.cdx.json \
+            --output-format json
 
-      - name: Cache Dependency-Check database
-        uses: actions/cache@v4
-        with:
-          path: odc-data
-          key: odc-db-${{ runner.os }}-v1
-          restore-keys: |
-            odc-db-${{ runner.os }}-
-
-      - name: Pull Dependency-Check image
-        run: docker pull owasp/dependency-check:latest
-
-      - name: Dependency-Check DB update (heartbeat every 3 min + docker logs)
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      - name: Run OWASP Dependency-Check
         run: |
-          set -e
-
-          NAME=odc-update
-          docker rm -f $NAME 2>/dev/null || true
-
-          echo " Starting update container (detached) "
-          docker run -d --name $NAME \
-            -e NVD_API_KEY=$NVD_API_KEY \
-            -v $PWD/$DATA_DIR:/usr/share/dependency-check/data \
-            owasp/dependency-check:latest \
-            --updateonly \
-            --data /usr/share/dependency-check/data \
-            --nvdApiKey $NVD_API_KEY \
-            --log /usr/share/dependency-check/data/update.log
-
-          echo "=== Container started: $NAME ==="
-          docker ps --filter "name=$NAME"
-
-          # Heartbeat: каждые 3 минуты показываем логи контейнера и рост каталога
-          while docker ps --format '{{.Names}}' | grep -q "^$NAME$"; do
-            echo "---- heartbeat ----"
-            date
-            echo "---- docker logs (tail) ----"
-            docker logs --tail 80 $NAME || true
-
-            echo "---- data dir size ----"
-            if [ -f $DATA_DIR/odc.mv.db ]; then
-              ls -lh $DATA_DIR/odc.mv.db || true
-            else
-              echo "DB not created yet"
-            fi
-            du -sh $DATA_DIR || true
-
-            sleep 180
-          done
-
-          echo "Container finished, collecting exit code "
-          EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' $NAME 2>/dev/null || echo 1)
-          echo "Update exit code: $EXIT_CODE"
-
-          echo "---- final docker logs ----"
-          docker logs --tail 200 $NAME || true
-
-          echo "---- internal update.log (tail) ----"
-          tail -n 200 $DATA_DIR/update.log || true
-
-          docker rm -f $NAME 2>/dev/null || true
-
-          echo " Post-check: data dir "
-          ls -la $DATA_DIR || true
-          du -sh $DATA_DIR || true
-
-          if [ ! -f $DATA_DIR/odc.mv.db ]; then
-            echo "ERROR: odc.mv.db was not created (DB missing)."
-            exit 13
-          fi
-
-          if [ "$EXIT_CODE" != "0" ]; then
-            echo "ERROR: update container failed with exit code $EXIT_CODE"
-            exit $EXIT_CODE
-          fi
-
-      - name: Dependency-Check scan
-        run: |
+          mkdir -p dependency-check-report
           docker run --rm \
             -v $PWD:/src \
-            -v $PWD/$REPORT_DIR:/report \
-            -v $PWD/$DATA_DIR:/usr/share/dependency-check/data \
+            -v $PWD/dependency-check-report:/report \
             owasp/dependency-check:latest \
-            --noupdate \
-            --data /usr/share/dependency-check/data \
             --scan /src \
             --project sbom-lab \
             --format HTML --format JSON \
             --out /report \
-            --prettyPrint \
             --disableOssIndex \
             --enableExperimental
 
