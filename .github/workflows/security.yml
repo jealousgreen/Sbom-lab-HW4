@@ -20,7 +20,7 @@ jobs:
         run: npm ci
 
       - name: Generate CycloneDX SBOM
-        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json --output-format json --include-dev
+        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json --output-format json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
