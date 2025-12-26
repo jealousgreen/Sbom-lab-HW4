@@ -53,5 +53,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
-          path: ${{github.workspace}}/dependency-check-report
+          path: ${{github.workspace}}
           retention-days: 7
